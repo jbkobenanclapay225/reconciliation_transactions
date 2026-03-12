@@ -33,8 +33,8 @@ if run:
         st.warning("Veuillez importer les deux types de fichiers SVP!!")
         st.stop()
     # concaténation des fichiers
-    transaction_all = load_and_concat(files_transactions, sep=",")
-    payment_feb = load_and_concat(files_payments)
+    transaction_all = load_and_concat(files_transactions, sep=";")
+    payment_feb = load_and_concat(files_payments, sep=";")
 
     st.subheader("Aperçu Plateforme")
     st.dataframe(transaction_all.head())
