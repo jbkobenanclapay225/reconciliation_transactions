@@ -6,13 +6,13 @@ st.title("Réconciliation Transactions")
 
 # Upload multiple fichiers pour chaque source
 files_transactions = st.file_uploader(
-    "Fichiers Plateforme (transactions-all ...)",
+    "Données CLAPAY Marchand",
     type="csv",
     accept_multiple_files=True
 )
 
 files_payments = st.file_uploader(
-    "Fichiers Marchand (payment ...)",
+    "Fichiers Marchand",
     type="csv",
     accept_multiple_files=True
 )
