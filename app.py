@@ -6,13 +6,13 @@ st.title("Réconciliation Transactions")
 
 # Upload multiple fichiers pour chaque source
 files_transactions = st.file_uploader(
-    "Données CLAPAY Marchand",
+    "Fichiers Marchand",
     type="csv",
     accept_multiple_files=True
 )
 
 files_payments = st.file_uploader(
-    "Fichiers Marchand",
+    "Données CLAPAY Marchand",
     type="csv",
     accept_multiple_files=True
 )
@@ -23,6 +23,7 @@ def load_and_concat(files, sep=None):
     dfs = []
     for f in files:
         df = pd.read_csv(f, encoding="utf-8", engine="python", delimiter=sep)
+        df.columns = df.columns.str.strip()
         dfs.append(df)
     return pd.concat(dfs, ignore_index=True)
 
@@ -36,12 +37,33 @@ if run:
     transaction_all = load_and_concat(files_transactions, sep=";")
     payment_feb = load_and_concat(files_payments, sep=";")
 
+    # Conversion types
+    def clean_numeric(df, col):
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(',', '.', regex=False)
+                .str.replace(' ', '', regex=False)
+            )
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Colonnes plateforme
+    clean_numeric(transaction_all, "Fee")
+    clean_numeric(transaction_all, "Amount")
+
+    # Colonnes marchand
+    clean_numeric(payment_feb, "fee_value")
+    clean_numeric(payment_feb, "amount")
+
+        
+
     st.subheader("Aperçu Plateforme")
     st.dataframe(transaction_all.head())
 
     st.subheader("Aperçu Marchand")
     st.dataframe(payment_feb.head())
-
+    
     # Merge pour détecter transactions manquantes
     diff = payment_feb.merge(
         transaction_all,
@@ -50,25 +72,12 @@ if run:
         how="outer",
         indicator=True
     )
-
-    # Conversion types
-    diff["amount"] = pd.to_numeric(diff["amount"], errors="coerce")
-    diff["Amount"] = pd.to_numeric(diff["Amount"], errors="coerce")
-    diff["Fee"] = pd.to_numeric(diff["Fee"], errors="coerce")
-    diff["fee_value"] = pd.to_numeric(diff["fee_value"], errors="coerce")
-
-    # Détection erreurs
-    erreur = diff[
-        (diff["amount"] != diff["Amount"]) |
-        (diff["fee_value"] != diff["Fee"]) |
-        (diff["status"] != "SUCCESSFUL") |
-        (diff["Status"] != "succeeded")
-    ]
-
+    
     # Totaux
     total_marchand = payment_feb.groupby("method")["amount"].sum()
     total_plateforme = transaction_all.groupby("Type")["Amount"].sum()
 
+    
     fee_plateforme = transaction_all["Fee"].sum()
     fee_marchand = payment_feb["fee_value"].sum()
 
@@ -99,15 +108,35 @@ if run:
     st.subheader("Ecarts Totaux")
     st.dataframe(Ecart_Totaux)
 
-    st.subheader("Erreurs détectées")
+    # distinguer les lignes « manquantes » des véritables divergences de valeurs
+    only_in_merchant  = diff[diff["_merge"] == "left_only"]  
+    only_in_platform  = diff[diff["_merge"] == "right_only"]  
+
+    matched = diff[diff["_merge"] == "both"]
+
+    amount_mismatch = matched["amount"].fillna(-1)    != matched["Amount"].fillna(-2)
+    fee_mismatch    = matched["fee_value"].fillna(-1) != matched["Fee"].fillna(-2)
+    status_merchant = matched["status"].fillna("").str.upper() != "SUCCESSFUL"
+    status_platform = matched["Status"].fillna("").str.lower() != "succeeded"
+
+    erreur = matched[amount_mismatch | fee_mismatch | status_merchant | status_platform]
+
+    st.subheader("Transactions manquantes (Marchand uniquement)")
+    st.dataframe(only_in_merchant)
+
+    st.subheader("Transactions manquantes (Plateforme uniquement)")
+    st.dataframe(only_in_platform)
+
+    st.subheader("Erreurs détectées (présentes des deux côtés, valeurs différentes)")
     st.dataframe(erreur)
 
-    # Export Excel en mémoire
+    # And include all three sheets in the Excel export
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        Ecart_Totaux.to_excel(writer, sheet_name="Ecart Totaux", index=True)
-        erreur.to_excel(writer, sheet_name="Erreurs", index=False)
-
+        Ecart_Totaux.to_excel(writer,        sheet_name="Ecart Totaux",         index=True)
+        erreur.to_excel(writer,              sheet_name="Erreurs valeurs",       index=False)
+        only_in_merchant.to_excel(writer,    sheet_name="Manquants Marchand",    index=False)
+        only_in_platform.to_excel(writer,    sheet_name="Manquants Plateforme",  index=False)
     output.seek(0)
 
     st.download_button(
